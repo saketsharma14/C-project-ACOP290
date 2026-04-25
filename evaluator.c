@@ -1,4 +1,5 @@
 #include "evaluator.h"
+#include "utils.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -12,12 +13,13 @@ factor  → NUMBER | '(' expr ')'
 */
 
 static const char *p; // global pointer for parsing
+static int parse_cell_reference(Sheet *sheet, bool *err);
 
 static void skip_spaces() {
     while (*p && isspace(*p)) p++;
 }
 
-static int parse_expr(bool *err);
+static int parse_expr(Sheet *sheet, bool *err);
 
 static int parse_number(bool *err) {
     skip_spaces();
@@ -36,12 +38,12 @@ static int parse_number(bool *err) {
     return val;
 }
 
-static int parse_factor(bool *err) {
+static int parse_factor(Sheet *sheet,bool *err) {
     skip_spaces();
 
     if (*p == '(') {
         p++; // consume '('
-        int val = parse_expr(err);
+        int val = parse_expr(sheet,err);
 
         skip_spaces();
         if (*p != ')') {
@@ -52,22 +54,26 @@ static int parse_factor(bool *err) {
         return val;
     }
 
+    if (isalpha(*p)) {
+        return parse_cell_reference(sheet, err);
+    }
+
     return parse_number(err);
 }
 
-static int parse_term(bool *err) {
-    int val = parse_factor(err);
+static int parse_term(Sheet *sheet,bool *err) {
+    int val = parse_factor(sheet,err);
 
     while (1) {
         skip_spaces();
 
         if (*p == '*') {
             p++;
-            int rhs = parse_factor(err);
+            int rhs = parse_factor(sheet,err);
             val *= rhs;
         } else if (*p == '/') {
             p++;
-            int rhs = parse_factor(err);
+            int rhs = parse_factor(sheet,err);
             if (rhs == 0) {
                 *err = true;
                 return 0;
@@ -81,19 +87,19 @@ static int parse_term(bool *err) {
     return val;
 }
 
-static int parse_expr(bool *err) {
-    int val = parse_term(err);
+static int parse_expr(Sheet *sheet,bool *err) {
+    int val = parse_term(sheet,err);
 
     while (1) {
         skip_spaces();
 
         if (*p == '+') {
             p++;
-            int rhs = parse_term(err);
+            int rhs = parse_term(sheet,err);
             val += rhs;
         } else if (*p == '-') {
             p++;
-            int rhs = parse_term(err);
+            int rhs = parse_term(sheet,err);
             val -= rhs;
         } else {
             break;
@@ -104,7 +110,6 @@ static int parse_expr(bool *err) {
 }
 
 EvalResult evaluate_expression(Sheet *sheet, const char *expr) {
-    (void)sheet; // unused for now (Phase 2)
 
     EvalResult res;
     res.result = 0;
@@ -118,7 +123,7 @@ EvalResult evaluate_expression(Sheet *sheet, const char *expr) {
     p = expr;
 
     bool err = false;
-    int value = parse_expr(&err);
+    int value = parse_expr(sheet,&err);
 
     skip_spaces();
 
@@ -170,4 +175,43 @@ int extract_dependencies(const char *expr, char deps[][16]) {
     }
 
     return count;
+}
+
+static int parse_cell_reference(Sheet *sheet, bool *err) {
+    skip_spaces();
+
+    char buffer[16];
+    int i = 0;
+
+    // read column letters
+    while (isalpha(*p) && i < 15) {
+        buffer[i++] = *p++;
+    }
+
+    // must have digits
+    if (!isdigit(*p)) {
+        *err = true;
+        return 0;
+    }
+
+    // read row digits
+    while (isdigit(*p) && i < 15) {
+        buffer[i++] = *p++;
+    }
+
+    buffer[i] = '\0';
+
+    int row, col;
+    if (!cell_to_index(buffer, &row, &col)) {
+        *err = true;
+        return 0;
+    }
+
+    Cell *cell = get_cell(sheet, row, col);
+    if (!cell || cell->is_err) {
+        *err = true;
+        return 0;
+    }
+
+    return cell->value;
 }
