@@ -3,26 +3,33 @@
 #include "sheet.h"
 #include "parser.h"
 #include <stdio.h>
+#include "sheet.h"
+#include "evaluator.h"
+
+void test_expr(Sheet *sheet, const char *expr) {
+    EvalResult res = evaluate_expression(sheet, expr);
+
+    if (res.is_err) {
+        printf("%s -> ERR\n", expr);
+    } else {
+        printf("%s -> %d\n", expr, res.result);
+    }
+}
+
 
 int main() {
-    // create sheet
-    Sheet *sheet = create_sheet(5, 5);
+    Sheet *sheet = create_sheet(10, 10);
 
-    if (!sheet) {
-        printf("Failed to create sheet\n");
-        return 1;
-    }
+    printf("Evaluator Tests:\n\n");
 
-   ParsedInput p;
+    test_expr(sheet, "2+3*4");        // 14
+    test_expr(sheet, "(2+3)*4");      // 20
+    test_expr(sheet, "10/2");         // 5
+    test_expr(sheet, "10/0");         // ERR
+    test_expr(sheet, "2+");           // ERR
+    test_expr(sheet, "2 + 3 * 4");    // 14
 
-    p = parse_input("d");
-    execute_command(sheet, &p);
+    free_sheet(sheet);
+    return 0;
 
-    p = parse_input("s");
-    execute_command(sheet, &p);
-
-    p = parse_input("scroll_to B2");
-    execute_command(sheet, &p);
-
-    print_sheet(sheet);
 }
