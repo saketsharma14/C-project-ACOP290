@@ -11,6 +11,40 @@
 
 #define INPUT_SIZE 256
 
+void recalculate_all(Sheet *sheet) {
+    int changed;
+
+    do {
+        changed = 0;
+
+        for (int i = 0; i < sheet->rows; i++) {
+            for (int j = 0; j < sheet->cols; j++) {
+
+                Cell *cell = get_cell(sheet, i, j);
+
+                if (strlen(cell->formula) > 0) {
+
+                    int old_val = cell->value;
+                    bool old_err = cell->is_err;
+
+                    EvalResult res = evaluate_expression(sheet, cell->formula);
+
+                    if (res.is_err) {
+                        set_cell_value(sheet, i, j, 0, true);
+                    } else {
+                        set_cell_value(sheet, i, j, res.result, false);
+                    }
+
+                    if (cell->value != old_val || cell->is_err != old_err) {
+                        changed = 1;
+                    }
+                }
+            }
+        }
+
+    } while (changed);
+}
+
 int main(int argc, char *argv[]) {
     if (argc != 3) {
         printf("Usage: ./sheet R C\n");
@@ -66,9 +100,11 @@ int main(int argc, char *argv[]) {
                     set_cell_value(sheet, row, col, 0, true);
                 } else {
                     set_cell_value(sheet, row, col, res.result, false);
+                    
                 }
 
                 strcpy(get_cell(sheet, row, col)->formula, p.expression);
+                recalculate_all(sheet);
                 strcpy(status, "ok");
             }
         }
