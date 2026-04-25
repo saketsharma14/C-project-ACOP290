@@ -143,3 +143,10 @@ int get_recalc_order(int start, int *order) {
     free(post);
     return idx;
 }
+
+void remove_dependency(int from, int to) {
+    if (!graph) return;
+    if (!in_bounds(from) || !in_bounds(to)) return;
+
+    graph[from][to] = 0;
+}

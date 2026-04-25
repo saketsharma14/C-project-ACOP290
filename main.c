@@ -8,42 +8,21 @@
 #include "utils.h"
 #include "commands.h"
 #include "evaluator.h"
+#include "deps.h"
 
 #define INPUT_SIZE 256
 
-void recalculate_all(Sheet *sheet) {
-    int changed;
-
-    do {
-        changed = 0;
-
-        for (int i = 0; i < sheet->rows; i++) {
-            for (int j = 0; j < sheet->cols; j++) {
-
-                Cell *cell = get_cell(sheet, i, j);
-
-                if (strlen(cell->formula) > 0) {
-
-                    int old_val = cell->value;
-                    bool old_err = cell->is_err;
-
-                    EvalResult res = evaluate_expression(sheet, cell->formula);
-
-                    if (res.is_err) {
-                        set_cell_value(sheet, i, j, 0, true);
-                    } else {
-                        set_cell_value(sheet, i, j, res.result, false);
-                    }
-
-                    if (cell->value != old_val || cell->is_err != old_err) {
-                        changed = 1;
-                    }
-                }
-            }
-        }
-
-    } while (changed);
+int cell_to_id(int row, int col, int cols) {
+    return row * cols + col;
 }
+int id_to_row(int id, int cols) {
+    return id / cols;
+}
+
+int id_to_col(int id, int cols) {
+    return id % cols;
+}
+
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
@@ -60,6 +39,7 @@ int main(int argc, char *argv[]) {
     }
 
     Sheet *sheet = create_sheet(R, C);
+    init_deps(R*C);
 
     char input[INPUT_SIZE];
     char status[64] = "ok";
@@ -94,17 +74,79 @@ int main(int argc, char *argv[]) {
 
                 strcpy(status, "invalid cell");
             } else {
-                EvalResult res = evaluate_expression(sheet, p.expression);
 
-                if (res.is_err) {
-                    set_cell_value(sheet, row, col, 0, true);
-                } else {
-                    set_cell_value(sheet, row, col, res.result, false);
-                    
+                int target = cell_to_id(row, col, sheet->cols);
+
+                // 1. Extract dependencies
+                char deps_list[64][16];
+                int dep_count = extract_dependencies(p.expression, deps_list);
+
+                // 2. Add dependencies FIRST (temporary)
+                int added[64];
+                int added_count = 0;
+
+                for (int i = 0; i < dep_count; i++) {
+                    int r, c;
+                    if (!cell_to_index(deps_list[i], &r, &c)) continue;
+
+                    if (r < 0 || r >= sheet->rows ||
+                        c < 0 || c >= sheet->cols) {
+                        continue;
+                    }
+
+                    int from = cell_to_id(r, c, sheet->cols);
+                    add_dependency(from, target);
+
+                    added[added_count++] = from;
                 }
 
-                strcpy(get_cell(sheet, row, col)->formula, p.expression);
-                recalculate_all(sheet);
+                // 3. Detect cycle
+                if (detect_cycle(target)) {
+                    strcpy(status, "circular ref");
+
+                    // rollback newly added edges
+                    for (int i = 0; i < added_count; i++) {
+                        remove_dependency(added[i], target);
+                    }
+
+                    continue;
+                }
+
+                // 4. Remove OLD dependencies (safe now)
+                remove_dependencies(target);
+
+                // 5. Re-add dependencies (final)
+                for (int i = 0; i < added_count; i++) {
+                    add_dependency(added[i], target);
+                }
+
+                // 6. Store formula
+                Cell *cell = get_cell(sheet, row, col);
+                strcpy(cell->formula, p.expression);
+
+                // 7. Get recalculation order
+                int order[R * C];
+                int count = get_recalc_order(target, order);
+
+                // 8. Recalculate ONLY affected cells
+                for (int i = 0; i < count; i++) {
+                    int id = order[i];
+                    int r = id_to_row(id, sheet->cols);
+                    int c = id_to_col(id, sheet->cols);
+
+                    Cell *cur = get_cell(sheet, r, c);
+
+                    if (strlen(cur->formula) > 0) {
+                        EvalResult res = evaluate_expression(sheet, cur->formula);
+
+                        if (res.is_err) {
+                            set_cell_value(sheet, r, c, 0, true);
+                        } else {
+                            set_cell_value(sheet, r, c, res.result, false);
+                        }
+                    }
+                }
+
                 strcpy(status, "ok");
             }
         }
