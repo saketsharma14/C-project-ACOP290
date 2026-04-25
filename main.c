@@ -54,7 +54,10 @@ int main(int argc, char *argv[]) {
         else if (p.type == INPUT_FORMULA) {
             int row, col;
 
-            if (!cell_to_index(p.target, &row, &col)) {
+            if (!cell_to_index(p.target, &row, &col) ||
+                row < 0 || row >= sheet->rows ||
+                col < 0 || col >= sheet->cols) {
+
                 strcpy(status, "invalid cell");
             } else {
                 EvalResult res = evaluate_expression(sheet, p.expression);
