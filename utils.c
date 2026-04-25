@@ -84,13 +84,3 @@ bool parse_range(const char *range,
     return true;
 }
 
-int main(){
-
-    char range[15]="AC23:BDF424";
-    int r1,r2,c1,c2;
-    parse_range(range,&r1,&c1,&r2,&c2);
-
-    printf("%d %d %d %d \n",r1,c1,r2,c2);
-
-    return 0;
-}
