@@ -1,0 +1,19 @@
+# Build artifacts
+sheet
+run_tests
+test
+*.dSYM/
+*.o
+
+# Editor
+.vscode/
+
+# LaTeX
+*.aux
+*.log
+*.pdf
+
+# Test temp files
+_test_input.txt
+#output files
+*.out
