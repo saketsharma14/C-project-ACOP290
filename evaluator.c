@@ -354,6 +354,7 @@ EvalResult evaluate_expression(Sheet *sheet, const char *expr) {
 
     if (err) {
         res.is_err = true;
+        res.err_type = last_err_type;
         return res;
     }
 

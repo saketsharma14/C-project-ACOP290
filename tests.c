@@ -335,7 +335,7 @@ static void test_large_sheet(void) {
 
     run_test("far cell assignment",
              999, 100,
-             "A999=77",
+             "A999=77\nscroll_to A999",
              "77");
 }
 
