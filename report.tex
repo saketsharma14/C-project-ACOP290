@@ -1,0 +1,201 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm, top=2.4cm, bottom=2.4cm]{geometry}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{tcolorbox}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{setspace}
+
+\tcbuselibrary{skins, breakable}
+
+\definecolor{primaryblue}{RGB}{20, 60, 120}
+\definecolor{codegray}{RGB}{100, 100, 100}
+\definecolor{lightborder}{RGB}{200, 210, 225}
+\definecolor{notebg}{RGB}{250, 249, 242}
+\definecolor{noteborder}{RGB}{190, 170, 100}
+\definecolor{darkbg}{RGB}{30, 30, 34}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{codegray}{\small CSpreadsheet --- Design Document}}
+\fancyhead[R]{\textcolor{codegray}{\small\thepage}}
+\fancyfoot[C]{\textcolor{codegray}{\footnotesize ACOP290, IITD-AD, Sem II 2025--26}}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\titleformat{\section}{\large\bfseries\color{primaryblue}}{}{0em}{}[\vspace{1pt}\textcolor{lightborder}{\rule{\textwidth}{0.6pt}}]
+\titleformat{\subsection}{\normalsize\bfseries}{}{0em}{}
+\titlespacing{\section}{0pt}{14pt}{5pt}
+\titlespacing{\subsection}{0pt}{9pt}{3pt}
+
+\lstset{
+  backgroundcolor=\color{darkbg},
+  basicstyle=\ttfamily\small\color{white},
+  breaklines=true,
+  frame=none,
+  xleftmargin=1em,
+  xrightmargin=1em,
+  aboveskip=4pt,
+  belowskip=4pt,
+}
+
+\newtcolorbox{notebox}{
+  colback=notebg,
+  colframe=noteborder,
+  left=8pt, right=8pt, top=5pt, bottom=5pt,
+  boxrule=0.5pt,
+  fontupper=\small
+}
+
+\hypersetup{colorlinks=true, linkcolor=primaryblue, urlcolor=primaryblue}
+\setlist[itemize]{leftmargin=1.5em, itemsep=2pt, topsep=3pt}
+\setlist[enumerate]{leftmargin=1.8em, itemsep=2pt, topsep=3pt}
+\setlength{\parskip}{5pt}
+
+\begin{document}
+
+% ---- Title ----
+\begin{center}
+  {\LARGE\bfseries\color{primaryblue} CSpreadsheet}\\[4pt]
+  {\large\color{codegray} Design Document \& Implementation Report}\\[6pt]
+  \textcolor{lightborder}{\rule{0.6\textwidth}{0.8pt}}\\[6pt]
+  {\small ACOP290}\\[6pt]
+  {\small
+    \textbf{Saket Sharma} \quad \texttt{24A1CSEB0019} \qquad
+    \textbf{Aditya Mohan} \quad \texttt{24A1CSEB0003}
+  }\\[4pt]
+  {\small\color{codegray}
+    GitHub: \href{https://github.com/saketsharma14/C-project-ACOP290}{\texttt{github.com/saketsharma14/C-project-ACOP290}}
+  }
+\end{center}
+
+\vspace{6pt}
+
+% ---- Overview ----
+\section{Overview}
+
+The assignment is to build a terminal-based spreadsheet in C that supports a grid of integer cells, formula evaluation, cross-cell references, and automatic recalculation. Users interact with the program through a simple command-line interface: they can assign values or formulas to cells, scroll the viewport, suppress output, and quit. The sheet is started as \texttt{./sheet R C}, supports grids up to 999 rows and 18,278 columns (A through ZZZ), and displays at most a 10x10 window at any time.
+
+The core design challenge is not the math --- it is keeping the code clean as complexity grows. Our approach is strict separation of concerns: each file owns exactly one responsibility, and data only flows downward through the call stack. Only \texttt{main.c} coordinates across modules. Nothing else calls sideways.
+
+% ---- Program Structure ----
+\section{Program Structure}
+
+The codebase is split into seven files. The diagram below shows what each one owns and which ones it is allowed to call.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{llll}
+\toprule
+\textbf{File} & \textbf{Owns} & \textbf{Key functions} & \textbf{Calls into} \\
+\midrule
+\texttt{utils.c}     & cell name conversion, range parsing  & \texttt{cell\_to\_idx}, \texttt{parse\_range}       & --- \\
+\texttt{parser.c}    & input classification                 & \texttt{parse\_input}                               & utils \\
+\texttt{sheet.c}     & the 2D cell grid                     & \texttt{get\_cell}, \texttt{set\_cell}, \texttt{print\_sheet} & utils \\
+\texttt{commands.c}  & viewport and control commands        & \texttt{run\_command}                               & sheet \\
+\texttt{deps.c}      & dependency graph                     & \texttt{add\_dep}, \texttt{remove\_deps}, \texttt{detect\_cycle}, \texttt{recalc\_order} & --- \\
+\texttt{evaluator.c} & expression evaluation                & \texttt{evaluate}, \texttt{extract\_refs}           & sheet \\
+\texttt{main.c}      & REPL loop, orchestration             & \texttt{main}                                       & all \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{utils.c}
+
+The foundation layer. It converts cell names like \texttt{B3} to \texttt{(row=2, col=1)} and back, parses range strings like \texttt{A1:C4} into their four bounding coordinates, and validates cell names against the sheet dimensions. Every other module depends on this one, so it was written and tested first before anything else was touched.
+
+\subsection{sheet.c}
+
+This file owns the grid. It allocates a 2D array of cell structs, each holding an integer value, a formula string (or NULL if none), and a boolean error flag. The public interface is three functions: \texttt{get\_cell()}, \texttt{set\_cell()}, and \texttt{print\_sheet()}. The print function handles the scroll offset and checks whether output is currently enabled. Sheet has no idea what a formula is --- it just stores and displays what it is given.
+
+\subsection{parser.c}
+
+The parser reads a raw input string and classifies it as a formula, a command, or invalid. For formulas it splits the string into a target cell name and a raw right-hand-side expression string. It does not evaluate anything --- that is the evaluator's job. The reason for this separation is that parsing and evaluation have different failure modes, and mixing them made early debugging much harder than necessary.
+
+\subsection{commands.c}
+
+Handles the six control inputs: \texttt{w/a/s/d} for scrolling (10 rows or columns per step), \texttt{scroll\_to} to jump the viewport to a specific cell, \texttt{enable\_output}, \texttt{disable\_output}, and \texttt{q} to exit. It updates shared viewport state and calls \texttt{sheet.c} to re-render when needed. It knows nothing about formulas or the dependency graph.
+
+\subsection{deps.c}
+
+This file maintains the dependency graph as an adjacency list, where each cell maps to the list of cells that depend on it. When B1's formula references A1, that edge lives here. It exposes four operations: add a dependency edge, remove all edges for a given cell (called when a formula is reassigned), detect whether a proposed new edge would create a cycle via DFS, and return the topologically-sorted recalculation order for a given starting cell. It never evaluates expressions and never reads cell values.
+
+\subsection{evaluator.c}
+
+Given a raw expression string and access to the current sheet state, the evaluator returns a numeric result or signals an error. It handles arithmetic operators, the six built-in functions (\texttt{MIN}, \texttt{MAX}, \texttt{SUM}, \texttt{AVG}, \texttt{STDEV}, \texttt{SLEEP}), and range syntax in both 1D and 2D forms. It also has a second function, \texttt{extract\_refs()}, which walks the same expression and returns the set of cells it references --- this is used by \texttt{main.c} to update the dependency graph after each assignment. If any referenced cell carries an error flag, the evaluator propagates that error rather than producing a partial result.
+
+\subsection{main.c}
+
+The entry point and the only orchestrator. It parses the \texttt{R} and \texttt{C} arguments, initialises the sheet, and runs the REPL loop: read a line, pass it to the parser, route commands to \texttt{commands.c} or formulas through the full pipeline, measure elapsed time, print the status string, and repeat. It is the only file allowed to call across module boundaries.
+
+% ---- Control Flow ----
+\section{Control Flow}
+
+Every input string is first handed to the parser. If it is invalid, the loop prints the error status and continues. If it is a command, it goes to \texttt{commands.c}, which updates the viewport and triggers a re-render if output is enabled.
+
+Formula inputs take a longer path. First, \texttt{deps.c} checks whether the proposed assignment would create a circular reference. If it would, the assignment is rejected and \texttt{(circular ref)} is printed. Otherwise, the old dependency edges for the target cell are removed, and \texttt{deps.c} computes the topologically-sorted list of cells that need to be recalculated. Each cell in that list is passed to the evaluator in order. If evaluation returns an error --- division by zero, a bad cell reference, or a reference to a cell already in an error state --- the cell is marked ERR in the sheet and the error propagates downstream. If evaluation succeeds, the integer result is stored and the new dependency edges are recorded. After all recalculations are done, \texttt{sheet.c} prints the updated grid.
+
+One thing that tripped us up early: old dependency edges must be removed \emph{before} evaluating the new formula and adding new edges. If the formula on a cell changes and the old edges are left in place, the graph accumulates stale connections and the recalculation order becomes silently wrong.
+
+% ---- Makefile ----
+\section{Makefile}
+
+The Makefile supports four targets as required by the assignment.
+
+\texttt{make} compiles all source files with \texttt{gcc -Wall -Wextra -g} and produces the \texttt{sheet} executable. \texttt{make test} compiles \texttt{tests.c} and runs it, which drives the sheet programmatically via \texttt{popen()} and checks output against expected values. \texttt{make report} runs \texttt{pdflatex} twice on \texttt{report.tex} to produce \texttt{report.pdf} (two passes are needed for LaTeX to resolve internal references correctly). \texttt{make clean} removes all build artifacts.
+
+\begin{notebox}
+\textbf{Makefile:}\\[4pt]
+\texttt{CC = gcc}\\
+\texttt{CFLAGS = -Wall -Wextra -g}\\[4pt]
+\texttt{SRCS = main.c utils.c sheet.c parser.c commands.c evaluator.c deps.c}\\
+\texttt{TARGET = sheet}\\[4pt]
+\texttt{all: \$(TARGET)}\\[2pt]
+\texttt{\$(TARGET): \$(SRCS)}\\
+\texttt{\hspace{1.5em}\$(CC) \$(CFLAGS) \$(SRCS) -o \$(TARGET)}\\[4pt]
+\texttt{test: \$(TARGET)}\\
+\texttt{\hspace{1.5em}gcc \$(CFLAGS) tests.c -o run\_tests \&\& ./run\_tests}\\[4pt]
+\texttt{report:}\\
+\texttt{\hspace{1.5em}pdflatex report.tex}\\
+\texttt{\hspace{1.5em}pdflatex report.tex}\\[4pt]
+\texttt{clean:}\\
+\texttt{\hspace{1.5em}rm -f \$(TARGET) run\_tests *.aux *.log *.pdf}\\[4pt]
+\texttt{.PHONY: all test report clean}
+\end{notebox}
+
+% ---- Error Handling ----
+\section{Error Handling and Edge Cases}
+
+Several error conditions needed careful thought.
+
+\textbf{Division by zero} propagates as ERR. When a cell's value becomes ERR, every cell that depends on it --- directly or transitively --- must also become ERR. This is not just a display concern: the ERR flag is stored in each cell struct, and the evaluator checks it on every cell reference lookup before doing any arithmetic.
+
+\textbf{Circular references} are caught before any assignment happens. The DFS cycle check in \texttt{deps.c} runs on the proposed new edges before \texttt{remove\_deps()} is called, so if the check fails the graph is left untouched and the sheet is unchanged.
+
+\textbf{Formula reassignment} requires that old dependency edges are cleared first. If \texttt{B1=A1+1} is later changed to \texttt{B1=C1*2}, the edge from A1 to B1 must be removed before the new edge from C1 to B1 is added. Leaving stale edges in causes incorrect recalculation order --- a bug that is hard to notice because the values are often still correct in simple cases.
+
+\textbf{Selective recalculation} is handled by topological sort. When A1 changes, only the cells reachable from A1 in the dependency graph are recomputed, in dependency order. Unrelated cells with \texttt{SLEEP} formulas, for instance, are not touched. This is what makes the interaction in the assignment spec work correctly: after \texttt{B1=1}, changing \texttt{A1} does not re-trigger \texttt{B2=SLEEP(B1)} because B1 no longer depends on A1.
+
+Other errors handled: running the program with wrong arguments, invalid cell names, out-of-bounds references, invalid ranges where the end cell comes before the start, and unrecognised commands.
+
+% ---- Test Suite ----
+\section{Test Suite}
+
+The test suite in \texttt{tests.c} feeds sequences of commands into the sheet via \texttt{popen()} and compares output against expected values. The cases covered include basic assignment and arithmetic, cell references updating correctly when a dependency changes, long dependency chains recalculating in the right order, all three forms of circular reference (self-reference, two-cell loop, longer cycle), ERR propagating through a chain of dependents, formula reassignment correctly clearing old dependency edges, \texttt{SLEEP} not being re-triggered when its inputs have not changed, scrolling to corners and edges of large grids, and the \texttt{disable\_output} / \texttt{enable\_output} flow from the assignment spec.
+
+% ---- Design Notes ----
+\section{Observations and Challenges}
+
+The hardest part to get right was the interaction between dependency removal, cycle detection, and recalculation order. Getting those three operations to happen in the correct sequence --- and only in that sequence --- took more iteration than expected.
+
+The brute-force recalculation approach (recompute everything on every change) was deliberately implemented first before the topological sort. It is slower but much easier to verify: if the brute-force version gives the right answers, the topo-sort version can be swapped in and validated against it. Trying to debug the dependency graph and the evaluation logic at the same time would have been significantly harder.
+
+The \texttt{SLEEP} function also surfaced a subtle issue. Because \texttt{SLEEP(n)} both sleeps for n seconds and returns n, it is critical that it only runs when its inputs have actually changed. The selective recalculation system handles this naturally, but it requires the dependency graph to be accurate --- which again depends on old edges being removed correctly on reassignment.
+
+\end{document}

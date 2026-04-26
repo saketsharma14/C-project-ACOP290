@@ -14,6 +14,7 @@ test: $(TARGET)
 
 report:
 	pdflatex report.tex
+	pdflatex report.tex
 
 clean:
 	rm -f $(TARGET) run_tests
