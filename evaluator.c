@@ -251,6 +251,7 @@ static int parse_function(Sheet *sheet, const char *name, bool *err) {
     int count = 0;
     int sum = 0;
     int min = 0, max = 0;
+    int sum_sq=0;
 
     for (int r = r1; r <= r2; r++) {
         for (int c = c1; c <= c2; c++) {
@@ -277,6 +278,7 @@ static int parse_function(Sheet *sheet, const char *name, bool *err) {
             }
 
             sum += v;
+            sum_sq += v * v;
             count++;
         }
     }
@@ -290,9 +292,30 @@ static int parse_function(Sheet *sheet, const char *name, bool *err) {
     if (strcmp(name, "AVG") == 0) return sum / count;
     if (strcmp(name, "MIN") == 0) return min;
     if (strcmp(name, "MAX") == 0) return max;
+    if (strcmp(name, "STDEV") == 0) {
+        if (count <= 0) {
+            *err = true;
+            return 0;
+        }
 
-    *err = true;
-    return 0;
+        // Use long long to avoid overflow
+        long long s = sum;
+        long long sq = sum_sq;
+        long long n = count;
+
+        // variance = (E[x^2] - (E[x])^2) computed safely
+        // = (sum_sq * count - sum * sum) / (count * count)
+        long long variance = (sq * n - s * s) / (n * n);
+
+        if (variance < 0) variance = 0;
+
+        // Integer square root
+        int sd = 0;
+        while ((long long)(sd + 1) * (sd + 1) <= variance) {
+            sd++;
+    }
+
+    return sd;
 }
 
 /* ---------- ENTRY ---------- */
