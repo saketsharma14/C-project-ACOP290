@@ -15,6 +15,7 @@ factor  → NUMBER | CELL | FUNCTION | '(' expr ')'
 */
 
 static const char *p;
+static EvalError last_err_type = EVAL_ERR_GENERIC;
 
 static void skip_spaces() {
     while (*p && isspace(*p)) p++;
@@ -146,6 +147,7 @@ static int parse_term(Sheet *sheet, bool *err) {
             int rhs = parse_factor(sheet, err);
             if (rhs == 0) {
                 *err = true;
+                last_err_type = EVAL_ERR_DIV_ZERO;
                 return 0;
             }
             val /= rhs;
@@ -240,11 +242,13 @@ static int parse_function(Sheet *sheet, const char *name, bool *err) {
 
     if (!parse_range(range, &r1, &c1, &r2, &c2)) {
         *err = true;
+        last_err_type = EVAL_ERR_INVALID_RANGE;
         return 0;
     }
 
     if (r1 > r2 || c1 > c2) {
         *err = true;
+        last_err_type = EVAL_ERR_INVALID_RANGE;
         return 0;
     }
 
@@ -298,25 +302,25 @@ static int parse_function(Sheet *sheet, const char *name, bool *err) {
             return 0;
         }
 
-        // Use long long to avoid overflow
         long long s = sum;
         long long sq = sum_sq;
         long long n = count;
 
-        // variance = (E[x^2] - (E[x])^2) computed safely
-        // = (sum_sq * count - sum * sum) / (count * count)
         long long variance = (sq * n - s * s) / (n * n);
 
         if (variance < 0) variance = 0;
 
-        // Integer square root
         int sd = 0;
         while ((long long)(sd + 1) * (sd + 1) <= variance) {
             sd++;
-    }
+        }
 
-    return sd;
+        return sd;
+    }
+    *err=true;
+    return 0;
 }
+
 
 /* ---------- ENTRY ---------- */
 
@@ -324,6 +328,7 @@ EvalResult evaluate_expression(Sheet *sheet, const char *expr) {
     EvalResult res;
     res.result = 0;
     res.is_err = false;
+    last_err_type = EVAL_ERR_GENERIC;
 
     if (!expr) {
         res.is_err = true;
@@ -347,6 +352,7 @@ EvalResult evaluate_expression(Sheet *sheet, const char *expr) {
     }
 
     res.result = value;
+    res.err_type = last_err_type;
     return res;
 }
 
