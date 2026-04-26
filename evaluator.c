@@ -333,26 +333,73 @@ int extract_dependencies(const char *expr, char deps[][16]) {
     const char *p = expr;
 
     while (*p) {
+
+        // -------- RANGE DETECTION --------
         if (isalpha(*p)) {
-            char buffer[16];
+            char start[16], end[16];
             int i = 0;
 
-            // letters
-            while (isalpha(*p) && i < 15) {
-                buffer[i++] = *p++;
+            const char *temp = p;
+
+            // read start cell
+            while (isalpha(*temp) && i < 15) {
+                start[i++] = *temp++;
             }
 
-            // digits
-            if (isdigit(*p)) {
-                while (isdigit(*p) && i < 15) {
-                    buffer[i++] = *p++;
+            if (!isdigit(*temp)) {
+                p++;
+                continue;
+            }
+
+            while (isdigit(*temp) && i < 15) {
+                start[i++] = *temp++;
+            }
+            start[i] = '\0';
+
+            // check for range ':'
+            if (*temp == ':') {
+                temp++; // skip ':'
+
+                i = 0;
+                while (isalpha(*temp) && i < 15) {
+                    end[i++] = *temp++;
                 }
 
-                buffer[i] = '\0';
+                if (!isdigit(*temp)) {
+                    p++;
+                    continue;
+                }
 
-                strcpy(deps[count++], buffer);
+                while (isdigit(*temp) && i < 15) {
+                    end[i++] = *temp++;
+                }
+                end[i] = '\0';
+
+                // expand range
+                int r1, c1, r2, c2;
+
+                char range[40];
+                snprintf(range, sizeof(range), "%s:%s", start, end);
+
+                if (parse_range(range, &r1, &c1, &r2, &c2)) {
+                    for (int r = r1; r <= r2; r++) {
+                        for (int c = c1; c <= c2; c++) {
+                            char cell[16];
+                            index_to_cell(r, c, cell);
+                            strcpy(deps[count++], cell);
+                        }
+                    }
+                }
+
+                p = temp;
+                continue;
             }
-        } else {
+
+            // -------- SINGLE CELL --------
+            strcpy(deps[count++], start);
+            p = temp;
+        }
+        else {
             p++;
         }
     }
