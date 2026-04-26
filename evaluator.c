@@ -91,6 +91,12 @@ static int parse_cell_reference(Sheet *sheet, bool *err) {
 
 static int parse_factor(Sheet *sheet, bool *err) {
     skip_spaces();
+    // unary minus
+    if (*p == '-') {
+        p++;
+        int val = parse_factor(sheet, err);
+        return -val;
+    }
 
     // (expr)
     if (*p == '(') {
